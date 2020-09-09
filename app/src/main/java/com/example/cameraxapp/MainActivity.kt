@@ -18,6 +18,11 @@ import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ExecutorService
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.pose.Pose
+import com.google.mlkit.vision.pose.PoseDetection
+import com.google.mlkit.vision.pose.PoseDetector
+import com.google.mlkit.vision.pose.PoseDetectorOptions
 typealias LumaListener = (luma: Double) -> Unit
 
 class MainActivity : AppCompatActivity() {
@@ -96,14 +101,19 @@ class MainActivity : AppCompatActivity() {
                 }
 
             imageCapture = ImageCapture.Builder()
-                .build()
+                .build() // Builds an immutable ImageCapture from the current state.
 
-            val imageAnalyzer = ImageAnalysis.Builder() // startCameraした段階でanalyzerを用意
+            /*val imageAnalyzer = ImageAnalysis.Builder() // startCameraした段階でanalyzerを用意
                 .build()
                 .also {// スコープ関数: 引数とする関数(cameraExecutor?)のスコープを変更するために使用
                     it.setAnalyzer(cameraExecutor, LuminosityAnalyzer { luma ->
                         Log.d(TAG, "Average luminosity: $luma")
                     })
+                }*/
+
+            ImageAnalysis.Builder().build()
+                ?.apply {
+                    setAnalyzer(ContextCompat.getMainExecutor(context), FaceAnalyzer())
                 }
 
             // Select back camera as a default
@@ -115,6 +125,7 @@ class MainActivity : AppCompatActivity() {
                 cameraProvider.unbindAll()
 
                 // Bind use cases to camera
+                // 解析対象はimageCapture(?)
                 // カメラとユースケース=設定(これまでに作ったcameraSelectorとか)をくっつける
                 cameraProvider.bindToLifecycle(
                     this, cameraSelector, preview, imageCapture, imageAnalyzer)
@@ -198,12 +209,40 @@ private class YourImageAnalyzer : ImageAnalysis.Analyzer { // 継承元はluma�
     }
 
     override fun analyze(imageProxy: ImageProxy) { // 引数はlumaのときと同じくImageProxy
-
         val mediaImage = imageProxy.image
         if (mediaImage != null) {
             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
             // Pass image to an ML Kit Vision API
             // ...
+        }
+    }
+}
+
+private class FaceAnalyzer : ImageAnalysis.Analyzer {
+
+    init {
+        // 軽量モードなどの設定
+        // Pose detection with streaming frames
+        val options = PoseDetectorOptions.Builder()
+            .setDetectorMode(PoseDetectorOptions.STREAM_MODE)
+            .setPerformanceMode(PoseDetectorOptions.PERFORMANCE_MODE_FAST)
+            .build()
+
+        val poseDetector = PoseDetection.getClient(options) // poseDetectorの用意完了
+    }
+
+    @SuppressLint("UnsafeExperimentalUsageError")
+    override fun analyze(imageProxy: ImageProxy) {
+        val image =
+            imageProxy.image?.let { InputImage.fromMediaImage(it, imageProxy.imageInfo.rotationDegrees) }
+        val result = image?.let {
+            detector.process(it)
+                .addOnSuccessListener { faces ->
+                    // 検出したときの処理を書く
+                }
+                .addOnFailureListener { e ->
+                    // 失敗したときの処理を書く
+                }
         }
     }
 }
