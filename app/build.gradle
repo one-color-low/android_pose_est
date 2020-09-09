@@ -44,5 +44,6 @@ dependencies {
     implementation "androidx.camera:camera-lifecycle:$camerax_version"
     // CameraX View class
     implementation "androidx.camera:camera-view:1.0.0-alpha14"
-
+    //ML Kit
+    implementation 'com.google.mlkit:pose-detection:16.0.0'
 }

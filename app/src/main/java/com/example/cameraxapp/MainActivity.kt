@@ -188,9 +188,17 @@ private class LuminosityAnalyzer(private val listener: LumaListener) : ImageAnal
     }
 }
 
-private class YourImageAnalyzer : ImageAnalysis.Analyzer {
+private class YourImageAnalyzer : ImageAnalysis.Analyzer { // 継承元はlumaと同じ
 
-    override fun analyze(imageProxy: ImageProxy) {
+    private fun ByteBuffer.toByteArray(): ByteArray {
+        rewind()    // Rewind(=巻き戻す) the buffer to zero
+        val data = ByteArray(remaining())
+        get(data)   // Copy the buffer into a byte array
+        return data // Return the byte array
+    }
+
+    override fun analyze(imageProxy: ImageProxy) { // 引数はlumaのときと同じくImageProxy
+
         val mediaImage = imageProxy.image
         if (mediaImage != null) {
             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
