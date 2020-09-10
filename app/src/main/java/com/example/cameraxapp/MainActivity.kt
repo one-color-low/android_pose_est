@@ -31,9 +31,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var outputDirectory: File
     private lateinit var cameraExecutor: ExecutorService
 
-    // 絶対実行される関数
     override fun onCreate(savedInstanceState: Bundle?) { // overrideしてるということは、継承元のAppCompatActivity()にもonCreateはあったということ。※それを明示するためにoverrideとして宣言している
-        super.onCreate(savedInstanceState) //superはスーパークラス(一世代上の親クラス)の意味
+        super.onCreate(savedInstanceState) //superはスーパークラス(=世代上の親クラス)の意味
         setContentView(R.layout.activity_main) // viewをセットする
 
         // カメラのパーミッションをリクエスト
@@ -55,7 +54,7 @@ class MainActivity : AppCompatActivity() {
     private fun takePhoto() {
         // Get a stable reference of the modifiable image capture use case
         // 修正可能なイメージキャプチャのユースケースに対するリファレンスを取得(?)
-        val imageCapture = imageCapture ?: return
+        val imageCapture = imageCapture ?: return // ?:はエルビス演算子。imageCaptureがnullになるならその時点でreturnするの意味
 
         // Create time-stamped output file to hold the image
         // タイムスタンプ付きの出力ファイルを作成
@@ -70,7 +69,7 @@ class MainActivity : AppCompatActivity() {
 
         // Set up image capture listener, which is triggered after photo has
         // been taken
-        // イメージキャプチャのリスナを用意
+        // イメージキャプチャのリスナを用意(写真が撮られたのにトリガーされる)(Analyzeする場合は不要)
         imageCapture.takePicture(
             outputOptions, ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
                 override fun onError(exc: ImageCaptureException) {
@@ -111,10 +110,12 @@ class MainActivity : AppCompatActivity() {
                     })
                 }*/
 
-            ImageAnalysis.Builder().build()
-                ?.apply {
-                    setAnalyzer(ContextCompat.getMainExecutor(context), FaceAnalyzer())
-                }
+            val imageAnalyzer = ImageAnalysis.Builder() // startCameraした段階でanalyzerを用意
+                .build()
+                .also {// スコープ関数: 引数とする関数(cameraExecutor?)のスコープを変更するために使用
+                    it.setAnalyzer(cameraExecutor, PoseAnalyzer { luma ->
+                        Log.d(TAG, "Average luminosity: $luma")
+                    })
 
             // Select back camera as a default
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
@@ -128,13 +129,13 @@ class MainActivity : AppCompatActivity() {
                 // 解析対象はimageCapture(?)
                 // カメラとユースケース=設定(これまでに作ったcameraSelectorとか)をくっつける
                 cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageCapture, imageAnalyzer)
+                    this, cameraSelector, preview, imageCapture, imageAnalyzer) // ここでAnalyzeを実行
 
             } catch(exc: Exception) {
                 Log.e(TAG, "Use case binding failed", exc) // 設定をくっつけるのに失敗した場合
             }
 
-        }, ContextCompat.getMainExecutor(this)) // 一個目のリスナが長いやつで、二つ目がContextCompat.xxxx
+        }, ContextCompat.getMainExecutor(this)) // 一個目のリスナが長いやつ(cameraProviderFuture.addListener)で、二つ目がContextCompat.geMainExecutor()
     }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
@@ -177,7 +178,8 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
-private class LuminosityAnalyzer(private val listener: LumaListener) : ImageAnalysis.Analyzer { // ImageAnalysis.Analyzerから継承してクラスを作成, luminosity = 「明度」
+// ImageAnalysis.Analyzerから継承してクラスを作成, luminosity = 「明度」
+private class LuminosityAnalyzer(private val listener: LumaListener) : ImageAnalysis.Analyzer {
 
     private fun ByteBuffer.toByteArray(): ByteArray {
         rewind()    // Rewind(=巻き戻す) the buffer to zero
@@ -199,16 +201,22 @@ private class LuminosityAnalyzer(private val listener: LumaListener) : ImageAnal
     }
 }
 
-private class YourImageAnalyzer : ImageAnalysis.Analyzer { // 継承元はlumaと同じ
+private class PoseAnalyzer : ImageAnalysis.Analyzer { // 継承元はlumaと同じ
 
-    private fun ByteBuffer.toByteArray(): ByteArray {
-        rewind()    // Rewind(=巻き戻す) the buffer to zero
-        val data = ByteArray(remaining())
-        get(data)   // Copy the buffer into a byte array
-        return data // Return the byte array
+    init {
+        // 軽量モードなどの設定
+        // Pose detection with streaming frames
+        val options = PoseDetectorOptions.Builder()
+            .setDetectorMode(PoseDetectorOptions.STREAM_MODE)
+            .setPerformanceMode(PoseDetectorOptions.PERFORMANCE_MODE_FAST)
+            .build()
+        val poseDetector = PoseDetection.getClient(options) // poseDetectorの用意完了
     }
 
     override fun analyze(imageProxy: ImageProxy) { // 引数はlumaのときと同じくImageProxy
+
+        //val buffer = imageProxy.planes[0].buffer
+
         val mediaImage = imageProxy.image
         if (mediaImage != null) {
             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
@@ -218,31 +226,3 @@ private class YourImageAnalyzer : ImageAnalysis.Analyzer { // 継承元はluma�
     }
 }
 
-private class FaceAnalyzer : ImageAnalysis.Analyzer {
-
-    init {
-        // 軽量モードなどの設定
-        // Pose detection with streaming frames
-        val options = PoseDetectorOptions.Builder()
-            .setDetectorMode(PoseDetectorOptions.STREAM_MODE)
-            .setPerformanceMode(PoseDetectorOptions.PERFORMANCE_MODE_FAST)
-            .build()
-
-        val poseDetector = PoseDetection.getClient(options) // poseDetectorの用意完了
-    }
-
-    @SuppressLint("UnsafeExperimentalUsageError")
-    override fun analyze(imageProxy: ImageProxy) {
-        val image =
-            imageProxy.image?.let { InputImage.fromMediaImage(it, imageProxy.imageInfo.rotationDegrees) }
-        val result = image?.let {
-            detector.process(it)
-                .addOnSuccessListener { faces ->
-                    // 検出したときの処理を書く
-                }
-                .addOnFailureListener { e ->
-                    // 失敗したときの処理を書く
-                }
-        }
-    }
-}
